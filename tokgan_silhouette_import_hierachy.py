@@ -182,7 +182,7 @@ def key_enabled_layer(shape, frames, visibility_data):
 
     last_vis = None
 
-    for frame in sorted_frames:
+    for (i, frame) in enumerate(sorted_frames):
         current_vis = bool(visibility_data[str(frame)])
 
         # Only set a key if the visibility state has changed
@@ -194,7 +194,10 @@ def key_enabled_layer(shape, frames, visibility_data):
             layer_editor.setValue(val, frame)
 
             last_vis = current_vis
-
+        if i + 1 < len(sorted_frames) and sorted_frames[i+1] - frame > 2:
+            layer_editor.setValue(0, frame + 1)
+            layer_editor.setValue(0, sorted_frames[i+1]-1)
+            last_vis = 0
     # Ensure it turns off after the last known frame
     layer_editor.setValue(0, sorted_frames[-1] + 1)
     layer_editor.execute()
