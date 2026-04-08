@@ -3,11 +3,23 @@ import math
 import sys
 import os
 
+
 ## --- N-Dimensional Math Utilities ---
-def vec_sub(a, b): return [x - y for x, y in zip(a, b)]
-def vec_dot(a, b): return sum(x * y for x, y in zip(a, b))
-def vec_mag_sq(a): return sum(x**2 for x in a)
-def vec_mag(a):    return math.sqrt(vec_mag_sq(a))
+def vec_sub(a, b):
+    return [x - y for x, y in zip(a, b)]
+
+
+def vec_dot(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+
+def vec_mag_sq(a):
+    return sum(x**2 for x in a)
+
+
+def vec_mag(a):
+    return math.sqrt(vec_mag_sq(a))
+
 
 def rdp_reduction_native(points, tolerance):
     """Ramer-Douglas-Peucker for N-dimensional key reduction."""
@@ -24,53 +36,57 @@ def rdp_reduction_native(points, tolerance):
         if line_len_sq == 0:
             dist = vec_mag(vec_sub(p, start))
         else:
-            t = max(0, min(1, vec_dot(vec_sub(p, start), line_vec) / line_len_sq))
+            t = max(
+                0, min(1, vec_dot(vec_sub(p, start), line_vec) / line_len_sq)
+            )
             proj = [s + t * v for s, v in zip(start, line_vec)]
             dist = vec_mag(vec_sub(p, proj))
-        
+
         if dist > max_dist:
             max_dist, index = dist, i
 
     if max_dist > tolerance:
-        left = rdp_reduction_native(points[:index+1], tolerance)
+        left = rdp_reduction_native(points[: index + 1], tolerance)
         right = rdp_reduction_native(points[index:], tolerance)
         return left[:-1] + [idx + index for idx in right]
     return [0, len(points) - 1]
 
+
 # --- Patching Logic ---
+
 
 def patch_tokgan_json(input_path, output_path, tolerance=0.2):
     """
-    Reads Tokgan JSON, undersamples the frames based on CRS + RDP, 
+    Reads Tokgan JSON, undersamples the frames based on CRS + RDP,
     and saves a new JSON with the EXACT same structure.
     """
     if not os.path.exists(input_path):
         print(f"Error: {input_path} not found.")
         return
 
-    with open(input_path, 'r') as f:
+    with open(input_path, "r") as f:
         data = json.load(f)
 
     for obj_id, obj_data in data.get("objects", {}).items():
         original_frames = obj_data.get("frames", {})
         sorted_keys = sorted(original_frames.keys(), key=lambda x: int(x))
-        
+
         # 1. Build the state vectors for RDP
         state_vectors = []
         for f_str in sorted_keys:
             f_val = original_frames[f_str]
-            
+
             # Origin point for the CRS
             p0 = (f_val["bone"]["pt0"]["x"], f_val["bone"]["pt0"]["y"])
             p1 = (f_val["bone"]["pt1"]["x"], f_val["bone"]["pt1"]["y"])
-            
+
             # Basis vectors
             dx, dy = p1[0] - p0[0], p1[1] - p0[1]
             dist = math.sqrt(dx**2 + dy**2)
-            ux = (dx/dist, dy/dist) if dist > 0 else (1, 0)
+            ux = (dx / dist, dy / dist) if dist > 0 else (1, 0)
             uy = (-ux[1], ux[0])
             angle = -math.degrees(math.atan2(dy, dx))
-            
+
             # Localize points relative to p0 and p1
             local_pts = []
             for p in f_val["points"]:
@@ -88,14 +104,19 @@ def patch_tokgan_json(input_path, output_path, tolerance=0.2):
 
         # 3. Patch the dictionary in-place
         # We filter the frames dict to only keep identified keys
-        obj_data["frames"] = {k: v for k, v in original_frames.items() if k in keep_keys}
-        
-        print(f"Object {obj_id}: Reduced from {len(original_frames)} to {len(obj_data['frames'])} frames.")
+        obj_data["frames"] = {
+            k: v for k, v in original_frames.items() if k in keep_keys
+        }
+
+        print(
+            f"Object {obj_id}: Reduced from {len(original_frames)} to {len(obj_data['frames'])} frames."
+        )
 
     # 4. Write out the patched JSON
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(data, f, indent=4)
     print(f"Patched JSON saved to: {output_path}")
+
 
 """
 Convert Tokgan JSON to Silhouette FXS format.
@@ -159,11 +180,13 @@ def pixels_to_silhouette_normalized(x, y):
         Tuple of (x, y) in Silhouette's normalized coordinate system
     """
     tx = ((x - (WIDTH / 2)) / HEIGHT) * PIXEL_ASPECT
-    ty = ((y - (HEIGHT / 2)) / HEIGHT)  # Normalized Y coordinate
+    ty = (y - (HEIGHT / 2)) / HEIGHT  # Normalized Y coordinate
     return tx, ty
 
 
-def create_point_xml(x, y, left_x=None, left_y=None, right_x=None, right_y=None):
+def create_point_xml(
+    x, y, left_x=None, left_y=None, right_x=None, right_y=None
+):
     """
     Create a Silhouette Point XML string.
 
@@ -210,9 +233,13 @@ def create_path_xml(points, closed=True):
         # Get handle coordinates if present
         left_x = left_y = right_x = right_y = None
         if "left_x" in pt:
-            left_x, left_y = pixels_to_silhouette_normalized(pt["left_x"], pt["left_y"])
+            left_x, left_y = pixels_to_silhouette_normalized(
+                pt["left_x"], pt["left_y"]
+            )
         if "right_x" in pt:
-            right_x, right_y = pixels_to_silhouette_normalized(pt["right_x"], pt["right_y"])
+            right_x, right_y = pixels_to_silhouette_normalized(
+                pt["right_x"], pt["right_y"]
+            )
 
         point_xml = create_point_xml(x, y, left_x, left_y, right_x, right_y)
         path_lines.append("\t\t\t\t\t" + point_xml)
@@ -246,10 +273,16 @@ def create_property_xml(keys_xml):
         XML string for the Property element
     """
     # Keys XML already contains proper indentation with 8 tabs
-    return '<Property id="path">\n' + "\n".join(keys_xml) + "\n\t\t\t\t</Property>"
+    return (
+        '<Property id="path">\n'
+        + "\n".join(keys_xml)
+        + "\n\t\t\t\t</Property>"
+    )
 
 
-def create_shape_xml_with_opacity(label, shape_id, keys_xml, opacity_xml, closed=True):
+def create_shape_xml_with_opacity(
+    label, shape_id, keys_xml, opacity_xml, closed=True
+):
     """
     Create a Silhouette Shape element with animation keys and opacity property.
 
@@ -267,8 +300,8 @@ def create_shape_xml_with_opacity(label, shape_id, keys_xml, opacity_xml, closed
     lines = [
         f'\t<Shape type="Shape" id="{shape_id}" label="{label}" selected="True" expanded="True" uuid="{generate_uuid(shape_id)}" shape_type="Bspline">',
         "\t\t<Properties>",
-        "\t\t\t<Property id=\"note\" constant=\"True\"></Property>",
-        "\t\t\t<Property id=\"path\">",
+        '\t\t\t<Property id="note" constant="True"></Property>',
+        '\t\t\t<Property id="path">',
     ]
 
     # Each key needs to be properly indented with 8 tabs at the start of <Key>
@@ -290,12 +323,15 @@ def create_shape_xml(label, shape_id, keys_xml, closed=True):
     Creates a shape with default full opacity.
     """
     opacity_xml = '<Property id="opacity"><Value>100</Value></Property>'
-    return create_shape_xml_with_opacity(label, shape_id, keys_xml, opacity_xml, closed)
+    return create_shape_xml_with_opacity(
+        label, shape_id, keys_xml, opacity_xml, closed
+    )
 
 
 def generate_uuid(seed_id):
     """Generate a pseudo-random UUID based on seed_id."""
     import hashlib
+
     hash_val = hashlib.md5(str(seed_id).encode()).hexdigest()
     return f"{hash_val[:8]}-{hash_val[8:12]}-{hash_val[12:16]}-{hash_val[16:20]}-{hash_val[20:32]}"
 
@@ -318,7 +354,9 @@ def create_opacity_xml(visibility_data):
         return '<Property id="opacity"><Value>100</Value></Property>'
 
     # Get sorted JSON frame numbers (only frames where visibility is 1)
-    sorted_json_frames = sorted(int(f) for f in visibility_data.keys() if visibility_data[f])
+    sorted_json_frames = sorted(
+        int(f) for f in visibility_data.keys() if visibility_data[f]
+    )
 
     if not sorted_json_frames:
         return '<Property id="opacity"><Value>0</Value></Property>'
@@ -368,11 +406,13 @@ def create_opacity_xml(visibility_data):
 
     # Add keyframes to XML
     for frame, value in unique_keyframes:
-        opacity_lines.append(f'\t\t\t\t\t<Key frame="{frame}" interp="hold">{value}</Key>')
+        opacity_lines.append(
+            f'\t\t\t\t\t<Key frame="{frame}" interp="hold">{value}</Key>'
+        )
 
-    opacity_lines.append('\t\t\t\t</Property>')
+    opacity_lines.append("\t\t\t\t</Property>")
 
-    return '\n'.join(opacity_lines)
+    return "\n".join(opacity_lines)
 
 
 def build_layer_hierarchy(data):
@@ -467,11 +507,11 @@ def create_object_xml(obj_type, label, obj_id, uuid, content_xml, indent="\t"):
         '<Property id="stereoOffset"><Value>(0.000000000,0.000000000,0.000000000)</Value></Property>',
         '<Property id="trackSource"><Value>0</Value></Property>',
     ]
-    lines.extend([f'{indent}\t{p}' for p in default_props])
+    lines.extend([f"{indent}\t{p}" for p in default_props])
     lines.append(f'{indent}\t<Property id="objects" constant="True">')
     lines.append(content_xml)
-    lines.append(f'{indent}\t</Property>')
-    lines.append(f'{indent}</Object>')
+    lines.append(f"{indent}\t</Property>")
+    lines.append(f"{indent}</Object>")
     return "\n".join(lines)
 
 
@@ -497,7 +537,9 @@ def create_layer_xml(label, contents, indent="\t", obj_id=0):
     objects_content = "\n".join(contents)
 
     uuid = generate_uuid(f"layer_{label}_{obj_id}")
-    return create_object_xml("Layer", label, obj_id, uuid, objects_content, indent)
+    return create_object_xml(
+        "Layer", label, obj_id, uuid, objects_content, indent
+    )
 
 
 def create_shape_object_xml(label, shape_xml, obj_id):
@@ -520,20 +562,30 @@ def create_shape_object_xml(label, shape_xml, obj_id):
     # Extract the properties from the shape_xml
     # Shape XML has <Properties>...</Properties> section
     import re
-    props_match = re.search(r'<Properties>(.*?)</Properties>', shape_xml, re.DOTALL)
+
+    props_match = re.search(
+        r"<Properties>(.*?)</Properties>", shape_xml, re.DOTALL
+    )
     if props_match:
         properties_content = props_match.group(1)
         # Add properties
-        lines.append(f'\t\t\t\t\t\t<Properties>')
+        lines.append(f"\t\t\t\t\t\t<Properties>")
         # Indent the properties
-        for line in properties_content.split('\n'):
-            lines.append(f'\t\t\t\t\t\t\t{line}')
-        lines.append(f'\t\t\t\t\t\t</Properties>')
-    lines.append(f'\t\t\t\t\t</Object>')
+        for line in properties_content.split("\n"):
+            lines.append(f"\t\t\t\t\t\t\t{line}")
+        lines.append(f"\t\t\t\t\t\t</Properties>")
+    lines.append(f"\t\t\t\t\t</Object>")
     return "\n".join(lines)
 
 
-def create_layer_xml_element(label, properties_content, obj_id, obj_type="Layer", expanded=True, uuid=None):
+def create_layer_xml_element(
+    label,
+    properties_content,
+    obj_id,
+    obj_type="Layer",
+    expanded=True,
+    uuid=None,
+):
     """
     Create a Silhouette Layer or Shape XML element.
 
@@ -551,17 +603,22 @@ def create_layer_xml_element(label, properties_content, obj_id, obj_type="Layer"
     if uuid is None:
         uuid = generate_uuid(f"{obj_type}_{label}_{obj_id}")
 
-    attrs = [f'type="{obj_type}"', f'id="{obj_id}"', f'label="{label}"', f'uuid="{uuid}"']
+    attrs = [
+        f'type="{obj_type}"',
+        f'id="{obj_id}"',
+        f'label="{label}"',
+        f'uuid="{uuid}"',
+    ]
     if expanded:
         attrs.append('expanded="True"')
 
     lines = [
         f'\t<{obj_type} {" ".join(attrs)}>',
-        '\t\t<Properties>',
+        "\t\t<Properties>",
     ]
     lines.append(properties_content)
-    lines.append('\t\t</Properties>')
-    lines.append(f'\t</{obj_type}>')
+    lines.append("\t\t</Properties>")
+    lines.append(f"\t</{obj_type}>")
 
     return "\n".join(lines)
 
@@ -606,15 +663,17 @@ def create_layer_object_xml(label, content_objects, obj_id):
         '<Property id="stereoOffset"><Value>(0.000000000,0.000000000,0.000000000)</Value></Property>',
         '<Property id="trackSource"><Value>0</Value></Property>',
     ]
-    lines.extend([f'\t\t\t\t\t\t{p}' for p in default_props])
+    lines.extend([f"\t\t\t\t\t\t{p}" for p in default_props])
 
     # Add objects property with content
-    lines.append(f'\t\t\t\t\t\t<Property id="objects" expanded="True" constant="True">')
+    lines.append(
+        f'\t\t\t\t\t\t<Property id="objects" expanded="True" constant="True">'
+    )
     for obj_xml in content_objects:
         lines.append(obj_xml)
-    lines.append(f'\t\t\t\t\t\t</Property>')
+    lines.append(f"\t\t\t\t\t\t</Property>")
 
-    lines.append(f'\t\t\t\t\t</Object>')
+    lines.append(f"\t\t\t\t\t</Object>")
     return "\n".join(lines)
 
 
@@ -681,19 +740,29 @@ def create_silhouette_xml(data, log=False, use_layers=False):
         if keys_xml:
             opacity_xml = create_opacity_xml(visibility_data)
 
-            shape_xml = create_shape_xml_with_opacity(label, shape_id, keys_xml, opacity_xml, closed)
+            shape_xml = create_shape_xml_with_opacity(
+                label, shape_id, keys_xml, opacity_xml, closed
+            )
             shape_elements.append(shape_xml)
             shapes_by_name[obj_name] = shape_xml
             shape_id += 1
             shape_count += 1
 
             if log:
-                print(f"[Shape {shape_count}] {label}: {len(sorted_frames)} frames, {len(pts)} points per frame     ", end="\r", flush=True)
-
-
+                print(
+                    f"[Shape {shape_count}] {label}: {len(sorted_frames)} frames, {len(pts)} points per frame     ",
+                    end="\r",
+                    flush=True,
+                )
 
     # Calculate total frames across all shapes
-    total_frames = len(set(int(f) for obj in data.get("objects", {}).values() for f in obj.get("frames", {}).keys()))
+    total_frames = len(
+        set(
+            int(f)
+            for obj in data.get("objects", {}).values()
+            for f in obj.get("frames", {}).keys()
+        )
+    )
 
     # Build layer XML if requested
     if use_layers:
@@ -706,7 +775,9 @@ def create_silhouette_xml(data, log=False, use_layers=False):
             return obj_id
 
         # Build a flat list of all shapes with their hierarchy info
-        shape_hierarchy = []  # [(obj_name, obj, side_label, region_label), ...]
+        shape_hierarchy = (
+            []
+        )  # [(obj_name, obj, side_label, region_label), ...]
         for person, regions in sorted(hierarchy.items()):
             for region, sides in sorted(regions.items()):
                 for side, items in sorted(sides.items()):
@@ -714,7 +785,9 @@ def create_silhouette_xml(data, log=False, use_layers=False):
                         if obj_name in shapes_by_name:
                             side_label = f"{person}_{region}_{side}"
                             region_label = f"{person}_{region}"
-                            shape_hierarchy.append((obj_name, obj, part, side_label, region_label))
+                            shape_hierarchy.append(
+                                (obj_name, obj, part, side_label, region_label)
+                            )
 
         # Build layer structure: person -> region -> side -> objects
         def build_shape_object(label, shape_xml, obj_id):
@@ -726,7 +799,7 @@ def create_silhouette_xml(data, log=False, use_layers=False):
             uuid = generate_uuid(f"layer_{label}_{obj_id}")
             lines = [
                 f'\t\t\t\t\t<Object type="Layer" id="{obj_id}" label="{label}" expanded="True" uuid="{uuid}">',
-                '\t\t\t\t\t\t<Properties>',
+                "\t\t\t\t\t\t<Properties>",
             ]
             default_props = [
                 '<Property id="note" constant="True"></Property>',
@@ -750,13 +823,15 @@ def create_silhouette_xml(data, log=False, use_layers=False):
                 '<Property id="stereoOffset"><Value>(0.000000000,0.000000000,0.000000000)</Value></Property>',
                 '<Property id="trackSource"><Value>0</Value></Property>',
             ]
-            lines.extend([f'\t\t\t\t\t\t\t{p}' for p in default_props])
-            lines.append(f'\t\t\t\t\t\t\t<Property id="objects" expanded="True" constant="True">')
+            lines.extend([f"\t\t\t\t\t\t\t{p}" for p in default_props])
+            lines.append(
+                f'\t\t\t\t\t\t\t<Property id="objects" expanded="True" constant="True">'
+            )
             for obj_xml in content_objects:
                 lines.append(obj_xml)
-            lines.append(f'\t\t\t\t\t\t\t</Property>')
-            lines.append('\t\t\t\t\t\t</Properties>')
-            lines.append(f'\t\t\t\t\t</Object>')
+            lines.append(f"\t\t\t\t\t\t\t</Property>")
+            lines.append("\t\t\t\t\t\t</Properties>")
+            lines.append(f"\t\t\t\t\t</Object>")
             return "\n".join(lines)
 
         def build_nested_layer_xml(label, content_objects, obj_id):
@@ -764,7 +839,7 @@ def create_silhouette_xml(data, log=False, use_layers=False):
             uuid = generate_uuid(f"layer_{label}_{obj_id}")
             lines = [
                 f'\t\t\t\t\t<Object type="Layer" id="{obj_id}" label="{label}" expanded="True" uuid="{uuid}">',
-                '\t\t\t\t\t\t<Properties>',
+                "\t\t\t\t\t\t<Properties>",
             ]
             default_props = [
                 '<Property id="note" constant="True"></Property>',
@@ -788,13 +863,15 @@ def create_silhouette_xml(data, log=False, use_layers=False):
                 '<Property id="stereoOffset"><Value>(0.000000000,0.000000000,0.000000000)</Value></Property>',
                 '<Property id="trackSource"><Value>0</Value></Property>',
             ]
-            lines.extend([f'\t\t\t\t\t\t\t{p}' for p in default_props])
-            lines.append(f'\t\t\t\t\t\t\t<Property id="objects" expanded="True" constant="True">')
+            lines.extend([f"\t\t\t\t\t\t\t{p}" for p in default_props])
+            lines.append(
+                f'\t\t\t\t\t\t\t<Property id="objects" expanded="True" constant="True">'
+            )
             for obj_xml in content_objects:
                 lines.append(obj_xml)
-            lines.append(f'\t\t\t\t\t\t\t</Property>')
-            lines.append('\t\t\t\t\t\t</Properties>')
-            lines.append(f'\t\t\t\t\t</Object>')
+            lines.append(f"\t\t\t\t\t\t\t</Property>")
+            lines.append("\t\t\t\t\t\t</Properties>")
+            lines.append(f"\t\t\t\t\t</Object>")
             return "\n".join(lines)
 
         def build_side_layer_xml(side_label, shapes_for_side):
@@ -803,21 +880,28 @@ def create_silhouette_xml(data, log=False, use_layers=False):
             for obj_name, obj, part in shapes_for_side:
                 shape_xml = shapes_by_name[obj_name]
                 label = obj_name.replace(":", "_") + "Shape"
-                shape_obj_xml = build_shape_object(label, shape_xml, get_next_obj_id())
+                shape_obj_xml = build_shape_object(
+                    label, shape_xml, get_next_obj_id()
+                )
                 shape_objects.append(shape_obj_xml)
-            return build_nested_layer_xml(side_label, shape_objects, get_next_obj_id())
+            return build_nested_layer_xml(
+                side_label, shape_objects, get_next_obj_id()
+            )
 
         def build_region_layer_xml(region_label, side_layers):
             """Build region layer containing side layers (as Objects)."""
-            return build_nested_layer_xml(region_label, side_layers, get_next_obj_id())
+            return build_nested_layer_xml(
+                region_label, side_layers, get_next_obj_id()
+            )
 
         def build_person_layer_xml(person_label, region_layers):
             """Build person layer containing region layers (as Objects).
-            Root person layer uses <Layer> element directly under Silhouette."""
+            Root person layer uses <Layer> element directly under Silhouette.
+            """
             uuid = generate_uuid(f"layer_{person_label}_root")
             lines = [
                 f'\t<Layer type="Layer" id="{get_next_obj_id()}" label="{person_label}" expanded="True" uuid="{uuid}">',
-                '\t\t<Properties>',
+                "\t\t<Properties>",
                 '\t\t\t<Property id="note" constant="True"></Property>',
                 '\t\t\t<Property id="color" constant="True"><Value>(1.000000,1.000000,1.000000)</Value></Property>',
                 '\t\t\t<Property id="transform" constant="True"><Value></Value></Property>',
@@ -842,9 +926,9 @@ def create_silhouette_xml(data, log=False, use_layers=False):
             ]
             for layer_xml in region_layers:
                 lines.append(layer_xml)
-            lines.append('\t\t\t</Property>')
-            lines.append('\t\t</Properties>')
-            lines.append('\t</Layer>')
+            lines.append("\t\t\t</Property>")
+            lines.append("\t\t</Properties>")
+            lines.append("\t</Layer>")
             return "\n".join(lines)
 
         # Group shapes by person, region, side
@@ -860,7 +944,9 @@ def create_silhouette_xml(data, log=False, use_layers=False):
                         person_data[person][region][side] = []
                     for obj_name, obj, part in items:
                         if obj_name in shapes_by_name:
-                            person_data[person][region][side].append((obj_name, obj, part))
+                            person_data[person][region][side].append(
+                                (obj_name, obj, part)
+                            )
 
         # Build the layer structure
         person_layer_objects = []
@@ -881,17 +967,21 @@ def create_silhouette_xml(data, log=False, use_layers=False):
 
                 # Build region layer with side layers
                 region_label = f"{person}_{region}"
-                region_obj = build_region_layer_xml(region_label, side_layer_objects)
+                region_obj = build_region_layer_xml(
+                    region_label, side_layer_objects
+                )
                 region_layer_objects.append(region_obj)
 
             # Build person layer with region layers
             person_label = person
-            person_obj = build_person_layer_xml(person_label, region_layer_objects)
+            person_obj = build_person_layer_xml(
+                person_label, region_layer_objects
+            )
             person_layer_objects.append(person_obj)
 
         # Build root XML with layers
         xml_lines = [
-            f'<!-- Silhouette Shape File -->',
+            f"<!-- Silhouette Shape File -->",
             f'<Silhouette width="{WIDTH}" height="{HEIGHT}" pixelAspect="1" workRangeStart="{start_frame-1}" workRangeEnd="{end_frame-1}" sessionStartFrame="1">',
         ]
 
@@ -902,7 +992,7 @@ def create_silhouette_xml(data, log=False, use_layers=False):
     else:
         # Build root XML without layers (shapes directly under Silhouette)
         xml_lines = [
-            f'<!-- Silhouette Shape File -->',
+            f"<!-- Silhouette Shape File -->",
             f'<Silhouette width="{WIDTH}" height="{HEIGHT}" pixelAspect="1" workRangeStart="{start_frame-1}" workRangeEnd="{end_frame-1}" sessionStartFrame="1">',
         ]
 
@@ -930,27 +1020,31 @@ def main():
         args.remove("--layers")
 
     if len(args) < 1:
-        print("Usage: python json_to_fxs.py input.json [output.fxs] [--log] [--layers]")
+        print(
+            "Usage: python json_to_fxs.py input.json [output.fxs] [--log] [--layers] tolerance"
+        )
         print("")
         print("Options:")
         print("  --log      Log execution details for each shape")
-        print("  --layers   Create hierarchical layer structure from object names")
+        print(
+            "  --layers   Create hierarchical layer structure from object names"
+        )
         sys.exit(1)
-
+    TOLERANCE = float(args[-1])
     input_path = args[0]
-    
+
     # Auto-generate output path if not provided
     if len(args) >= 2:
         output_path = args[1]
     else:
         # Replace .json extension with .fxs
-        if input_path.endswith('.json'):
-            output_path = input_path[:-5] + '.fxs'
+        if input_path.endswith(".json"):
+            output_path = input_path[:-5] + ".fxs"
         else:
-            output_path = input_path + '.fxs'
+            output_path = input_path + ".fxs"
 
-    patched_path = f"{input_path.split(".json")[-1]}{generate_uuid()}_reduced.json"
-    patch_tokgan_json(input_path, patched_path, tolerance=5)
+    patched_path = f"{input_path[:-5]}_tolerance_{TOLERANCE}_reduced.json"
+    patch_tokgan_json(input_path, patched_path, tolerance=TOLERANCE)
     try:
         with open(patched_path, "r") as f:
             data = json.load(f)
@@ -962,7 +1056,9 @@ def main():
         sys.exit(1)
 
     start_time = time.time()
-    xml_output, shape_count, frame_count = create_silhouette_xml(data_reduced, log=log_enabled, use_layers=layers_enabled)
+    xml_output, shape_count, frame_count = create_silhouette_xml(
+        data, log=log_enabled, use_layers=layers_enabled
+    )
 
     with open(output_path, "w") as f:
         f.write(xml_output)
@@ -973,7 +1069,9 @@ def main():
     print(f"Resolution: {WIDTH}x{HEIGHT}, Pixel Aspect: {PIXEL_ASPECT}")
     print(f"Shapes: {shape_count}, Frames per shape: {frame_count}")
     if layers_enabled:
-        print("Layer structure: Hierarchical (person -> region -> side -> part)")
+        print(
+            "Layer structure: Hierarchical (person -> region -> side -> part)"
+        )
     print(f"Time elapsed: {elapsed:.2f} seconds")
 
 
