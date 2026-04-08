@@ -3,7 +3,7 @@ import math
 import sys
 import os
 
-# --- N-Dimensional Math Utilities (Fixes the 2D Truncation) ---
+## --- N-Dimensional Math Utilities ---
 def vec_sub(a, b): return [x - y for x, y in zip(a, b)]
 def vec_dot(a, b): return sum(x * y for x, y in zip(a, b))
 def vec_mag_sq(a): return sum(x**2 for x in a)
@@ -37,96 +37,65 @@ def rdp_reduction_native(points, tolerance):
         return left[:-1] + [idx + index for idx in right]
     return [0, len(points) - 1]
 
+# --- Patching Logic ---
 
-# --- Core Processor ---
-
-def process_object_for_silhouette(obj_data, H, tolerance=0.5):
+def patch_tokgan_json(input_path, output_path, tolerance=0.2):
     """
-    Parses frame data, calculates the local CRS, projects points, 
-    and reduces keyframes for Silhouette.
+    Reads Tokgan JSON, undersamples the frames based on CRS + RDP, 
+    and saves a new JSON with the EXACT same structure.
     """
-    frames_data = []
-    sorted_keys = sorted(obj_data["frames"].keys(), key=lambda x: int(x))
+    if not os.path.exists(input_path):
+        print(f"Error: {input_path} not found.")
+        return
 
-    for f_str in sorted_keys:
-        f_val = obj_data["frames"][f_str]
-        t = int(f_str)
+    with open(input_path, 'r') as f:
+        data = json.load(f)
+
+    for obj_id, obj_data in data.get("objects", {}).items():
+        original_frames = obj_data.get("frames", {})
+        sorted_keys = sorted(original_frames.keys(), key=lambda x: int(x))
         
-        # CRS defined by the two bone points
-        end1 = (f_val["bone"]["pt0"]["x"], f_val["bone"]["pt0"]["y"])
-        end0 = (f_val["bone"]["pt1"]["x"], f_val["bone"]["pt1"]["y"])
-        
-        # Calculate CRS Basis
-        vec = (end1[0] - end0[0], end1[1] - end0[1])
-        dist = math.sqrt(vec[0]**2 + vec[1]**2)
-        ux = (vec[0]/dist, vec[1]/dist) if dist > 0 else (1, 0)
-        uy = (-ux[1], ux[0])
-        angle = -math.degrees(math.atan2(vec[1], vec[0]))
-        
-        # Local Point Projection
-        local_pts_state = []
-        for p in f_val["points"]:
-            rel = (p["x"] - end0[0], p["y"] - end0[1])
-            lx = rel[0]*ux[0] + rel[1]*ux[1]
-            ly = rel[0]*uy[0] + rel[1]*uy[1]
+        # 1. Build the state vectors for RDP
+        state_vectors = []
+        for f_str in sorted_keys:
+            f_val = original_frames[f_str]
             
-            # Silhouette handles B-spline math natively, so we only extract the centers
-            local_pts_state.extend([lx, ly])
-
-        # State vector: [TX, TY, Rot, lx0, ly0, lx1, ly1...]
-        # We track the UNFLIPPED TY in the state so the math distance is consistent with 
-        # local points, but we will flip it for the final 'trans' assignment.
-        state = [end0[0], end0[1], angle] + local_pts_state
-        
-        # Pre-apply Silhouette's Y-flip (H - y) to the global transform Y
-        frames_data.append({
-            't': t, 
-            'state': state, 
-            'trans': (end0[0], H - end0[1], angle)
-        })
-
-    # Execute synchronized N-dimensional key reduction
-    keep_indices = rdp_reduction_native([f['state'] for f in frames_data], tolerance)
-
-    # Re-pack the reduced frames for the FX module writer
-    reduced_frames = []
-    for idx in keep_indices:
-        fdata = frames_data[idx]
-        pts_values = fdata['state'][3:]
-        
-        local_points = []
-        for i in range(0, len(pts_values), 2):
-            lx, ly = pts_values[i], pts_values[i+1]
-            # Apply local Y-inversion as required by the shape coordinate space
-            local_points.append({'x': lx, 'y': -ly})
+            # Origin point for the CRS
+            p0 = (f_val["bone"]["pt0"]["x"], f_val["bone"]["pt0"]["y"])
+            p1 = (f_val["bone"]["pt1"]["x"], f_val["bone"]["pt1"]["y"])
             
-        reduced_frames.append({
-            'frame': fdata['t'],
-            'translation': (fdata['trans'][0], fdata['trans'][1]),
-            'rotation': fdata['trans'][2],
-            'points': local_points
-        })
+            # Basis vectors
+            dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+            dist = math.sqrt(dx**2 + dy**2)
+            ux = (dx/dist, dy/dist) if dist > 0 else (1, 0)
+            uy = (-ux[1], ux[0])
+            angle = -math.degrees(math.atan2(dy, dx))
+            
+            # Localize points relative to p0 and p1
+            local_pts = []
+            for p in f_val["points"]:
+                rel_x, rel_y = p["x"] - p0[0], p["y"] - p0[1]
+                lx = rel_x * ux[0] + rel_y * ux[1]
+                ly = rel_x * uy[0] + rel_y * uy[1]
+                local_pts.extend([lx, ly])
 
-    return reduced_frames
+            # Vector: [OriginX, OriginY, Rot, ...Points...]
+            state_vectors.append([p0[0], p0[1], angle] + local_pts)
 
-def reduce_tokgan_to_silhouette(data, tolerance=0.5, log=False):
-    # Get Vertical Resolution for the (H - y) coordinate flip
-    H = data.get("resolution", [640,480])[1] 
-    
-    processed_objects = {}
-    for obj_id, obj_data in data["objects"].items():
-        reduced_frames = process_object_for_silhouette(obj_data, H, tolerance)
-        processed_objects[obj_id] = reduced_frames
+        # 2. Identify keyframes to keep
+        keep_indices = rdp_reduction_native(state_vectors, tolerance)
+        keep_keys = {sorted_keys[idx] for idx in keep_indices}
+
+        # 3. Patch the dictionary in-place
+        # We filter the frames dict to only keep identified keys
+        obj_data["frames"] = {k: v for k, v in original_frames.items() if k in keep_keys}
         
-        orig = len(obj_data["frames"])
-        final = len(reduced_frames)
-        reduction = ((orig - final) / orig) * 100 if orig > 0 else 0
-        if log:
-            print(f"  > Object {obj_id}: {orig} frames -> {final} keys ({reduction:.1f}% reduction)")
+        print(f"Object {obj_id}: Reduced from {len(original_frames)} to {len(obj_data['frames'])} frames.")
 
-    # The 'processed_objects' dictionary is now ready for your 'import fx' loop.
-    # Each object contains a list of frame dicts with local 'points' and bone 'translation'/'rotation'.
-    return processed_objects
+    # 4. Write out the patched JSON
+    with open(output_path, 'w') as f:
+        json.dump(data, f, indent=4)
+    print(f"Patched JSON saved to: {output_path}")
 
 """
 Convert Tokgan JSON to Silhouette FXS format.
@@ -969,7 +938,7 @@ def main():
         sys.exit(1)
 
     input_path = args[0]
-
+    
     # Auto-generate output path if not provided
     if len(args) >= 2:
         output_path = args[1]
@@ -980,8 +949,10 @@ def main():
         else:
             output_path = input_path + '.fxs'
 
+    patched_path = f"{input_path.split(".json")[-1]}{generate_uuid()}_reduced.json"
+    patch_tokgan_json(input_path, patched_path, tolerance=5)
     try:
-        with open(input_path, "r") as f:
+        with open(patched_path, "r") as f:
             data = json.load(f)
     except FileNotFoundError:
         print(f"Error: Input file '{input_path}' not found")
@@ -991,11 +962,6 @@ def main():
         sys.exit(1)
 
     start_time = time.time()
-    WIDTH, HEIGHT = data.get("resolution", [2160, 4096])
-    reduced_object_data = reduce_tokgan_to_silhouette(data, tolerance=0.5, log=log_enabled)
-
-    data_reduced = data | {'objects': reduced_object_data}
-
     xml_output, shape_count, frame_count = create_silhouette_xml(data_reduced, log=log_enabled, use_layers=layers_enabled)
 
     with open(output_path, "w") as f:
