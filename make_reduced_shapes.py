@@ -1049,10 +1049,10 @@ def main():
         with open(patched_path, "r") as f:
             data = json.load(f)
     except FileNotFoundError:
-        print(f"Error: Input file '{input_path}' not found")
+        print(f"Error: Input file '{patched_path}' not found")
         sys.exit(1)
     except json.JSONDecodeError as e:
-        print(f"Error: Invalid JSON in '{input_path}': {e}")
+        print(f"Error: Invalid JSON in '{patched_path}': {e}")
         sys.exit(1)
 
     start_time = time.time()
