@@ -992,7 +992,9 @@ def main():
 
     start_time = time.time()
     WIDTH, HEIGHT = data.get("resolution", [2160, 4096])
-    data_reduced = reduce_tokgan_to_silhouette(data, tolerance=0.5, log=log_enabled)
+    reduced_object_data = reduce_tokgan_to_silhouette(data, tolerance=0.5, log=log_enabled)
+
+    data_reduced = data | {'objects': reduced_object_data}
 
     xml_output, shape_count, frame_count = create_silhouette_xml(data_reduced, log=log_enabled, use_layers=layers_enabled)
 
