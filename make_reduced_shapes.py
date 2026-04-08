@@ -109,7 +109,7 @@ def process_object_for_silhouette(obj_data, H, tolerance=0.5):
 
     return reduced_frames
 
-def reduce_tokgan_to_silhouette(data, tolerance=0.5, log=log_enabled):
+def reduce_tokgan_to_silhouette(data, tolerance=0.5, log=False):
     # Get Vertical Resolution for the (H - y) coordinate flip
     H = data.get("resolution", {}).get("height", 2160) 
     
