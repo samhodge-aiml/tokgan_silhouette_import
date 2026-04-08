@@ -109,6 +109,25 @@ def process_object_for_silhouette(obj_data, H, tolerance=0.5):
 
     return reduced_frames
 
+def reduce_tokgan_to_silhouette(data, tolerance=0.5, log=log_enabled):
+    # Get Vertical Resolution for the (H - y) coordinate flip
+    H = data.get("resolution", {}).get("height", 2160) 
+    
+    processed_objects = {}
+    for obj_id, obj_data in data["objects"].items():
+        reduced_frames = process_object_for_silhouette(obj_data, H, tolerance)
+        processed_objects[obj_id] = reduced_frames
+        
+        orig = len(obj_data["frames"])
+        final = len(reduced_frames)
+        reduction = ((orig - final) / orig) * 100 if orig > 0 else 0
+        if log:
+            print(f"  > Object {obj_id}: {orig} frames -> {final} keys ({reduction:.1f}% reduction)")
+
+    # The 'processed_objects' dictionary is now ready for your 'import fx' loop.
+    # Each object contains a list of frame dicts with local 'points' and bone 'translation'/'rotation'.
+    return processed_objects
+
 """
 Convert Tokgan JSON to Silhouette FXS format.
 
@@ -973,7 +992,7 @@ def main():
 
     start_time = time.time()
     WIDTH, HEIGHT = data.get("resolution", [2160, 4096])
-    data_reduced = process_object_for_silhouette(data, HEIGHT, tolerance=0.5)
+    data_reduced = reduce_tokgan_to_silhouette(data, tolerance=0.5, log=log_enabled)
 
     xml_output, shape_count, frame_count = create_silhouette_xml(data_reduced, log=log_enabled, use_layers=layers_enabled)
 
